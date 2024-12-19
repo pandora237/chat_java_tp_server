@@ -27,6 +27,7 @@ public class ServerChat extends Application {
 	private Thread serverThread;
 	private Label statusLabel;
 	public static MySqlJava mySqlJava;
+	private static final String FILE_STORAGE = "server_files";
 
 	public static void main(String[] args) {
 		mySqlJava = new MySqlJava();
@@ -83,6 +84,8 @@ public class ServerChat extends Application {
 			Platform.exit();
 			System.exit(0);
 		});
+
+		createFolderIfNotExists(FILE_STORAGE);
 	}
 
 	private void startServer() {
@@ -177,7 +180,7 @@ public class ServerChat extends Application {
 			}
 		} catch (IOException e) {
 			System.out.println("Client déconnecté : " + clientSocket);
-		    clientSockets.remove(clientSocket);
+			clientSockets.remove(clientSocket);
 		} finally {
 //			clientSockets.remove(clientSocket);
 //			try {
@@ -190,7 +193,7 @@ public class ServerChat extends Application {
 
 	private void broadcastMessage(String Datas, Socket sender, PrintWriter outCurrentClient) {
 		JSONObject currentDatas = new JSONObject(Datas);
-		String action = currentDatas.has("__ACTION") ? currentDatas.getString("__ACTION") : null;
+		String action = currentDatas.has("action") ? currentDatas.getString("action") : null;
 		System.out.println("Action : " + action);
 
 		if ("get_messages".equals(action)) {
@@ -198,25 +201,45 @@ public class ServerChat extends Application {
 			outCurrentClient.println(formateResponse(true, "get_messages", null, result.toString()));
 			return;
 		}
+		System.out.println("action::::::" + action);
+		if ("send_file".equals(action)) {
+			String fileName = currentDatas.getString("fileName");
+			String fileContent = currentDatas.getString("fileContent");
 
-		if (currentDatas != null) {
-			String insertQuery = "INSERT INTO message (idSend, idReceive, content) " + "VALUES ("
-					+ currentDatas.getInt("idSend") + "," + currentDatas.getInt("idReceive") + "," + "'"
-					+ currentDatas.getString("content") + "' )";
-			mySqlJava.executeUpdateQuery(insertQuery);
-		}
-
-		synchronized (clientSockets) {
-			for (Socket clientSocket : clientSockets) {
-				if (clientSocket != sender) {
+			synchronized (clientSockets) {
+				for (Socket clientSocket : clientSockets) {
 					try {
 						PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
-						System.out.println(
-								"Le serveur a reçu le message : " + currentDatas.toString() + " ::: De :" + sender);
-						out.println(formateResponse(true, null, currentDatas, null));
+						JSONObject fileResponse = new JSONObject();
+						fileResponse.put("action", "send_file");
+						fileResponse.put("datas", currentDatas);
+
+						out.println(fileResponse.toString());
 					} catch (IOException e) {
-						System.err.println("Erreur lors de l'envoi au client : " + clientSocket);
 						e.printStackTrace();
+					}
+				}
+			}
+		} else {
+			if (currentDatas != null) {
+				String insertQuery = "INSERT INTO message (idSend, idReceive, content) " + "VALUES ("
+						+ currentDatas.getInt("idSend") + "," + currentDatas.getInt("idReceive") + "," + "'"
+						+ currentDatas.getString("content") + "' )";
+				mySqlJava.executeUpdateQuery(insertQuery);
+			}
+
+			synchronized (clientSockets) {
+				for (Socket clientSocket : clientSockets) {
+					if (clientSocket != sender) {
+						try {
+							PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
+							System.out.println(
+									"Le serveur a reçu le message : " + currentDatas.toString() + " ::: De :" + sender);
+							out.println(formateResponse(true, null, currentDatas, null));
+						} catch (IOException e) {
+							System.err.println("Erreur lors de l'envoi au client : " + clientSocket);
+							e.printStackTrace();
+						}
 					}
 				}
 			}
@@ -232,6 +255,17 @@ public class ServerChat extends Application {
 			out.println(formateResponse(true, "get_messages", message, null));
 		}
 		System.out.println("Tous les anciens messages ont été envoyés au client : ");
+	}
+
+	private void createFolderIfNotExists(String directoryPath) {
+		File directory = new File(directoryPath);
+		if (!directory.exists()) {
+			if (directory.mkdirs()) {
+				System.out.println("Répertoire créé : " + directoryPath);
+			} else {
+				System.err.println("Erreur lors de la création du répertoire : " + directoryPath);
+			}
+		}
 	}
 
 	private JSONObject formateResponse(Boolean success, String action, JSONObject datas, String datasString) {
