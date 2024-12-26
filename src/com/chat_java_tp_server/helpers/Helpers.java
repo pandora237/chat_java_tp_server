@@ -2,17 +2,23 @@ package com.chat_java_tp_server.helpers;
 
 public class Helpers {
 
-    public static String extractVal(String text, String key) {
-        if (text == null || key == null) {
-            return null;
-        }
+	// commun server
+	public static final String audioFile = "send_file";
+	public static final String audioType = "audio_call";
+	public static final String videoType = "video_call";
+	// end commun
 
-        // Création du regex basé sur la clé, suivie de l'égalité et de la valeur
-        String regex = key + "='([^']+)'";  // Match tout entre les apostrophes
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(regex);
-        java.util.regex.Matcher matcher = pattern.matcher(text);
+	public static String extractVal(String text, String key) {
+		if (text == null || key == null) {
+			return null;
+		}
 
-        return matcher.find() ? matcher.group(1) : null;
-    }
+		// Création du regex basé sur la clé, suivie de l'égalité et de la valeur
+		String regex = key + "='([^']+)'"; // Match tout entre les apostrophes
+		java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(regex);
+		java.util.regex.Matcher matcher = pattern.matcher(text);
+
+		return matcher.find() ? matcher.group(1) : null;
+	}
 
 }
