@@ -3,9 +3,13 @@ package com.chat_java_tp_server.helpers;
 public class Helpers {
 
 	// commun server
-	public static final String audioFile = "send_file";
+	public static final String sendFile = "send_file";
 	public static final String audioType = "audio_call";
 	public static final String videoType = "video_call";
+	public static final String endCallType = "end_call";
+	public static final String login = "login";
+	public static final String logout = "logout";
+	public static final String otherUserLogged = "other_user_logged";
 	// end commun
 
 	public static String extractVal(String text, String key) {

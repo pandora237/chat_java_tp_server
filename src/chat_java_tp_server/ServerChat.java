@@ -44,6 +44,7 @@ public class ServerChat extends Application {
 	private static AtomicBoolean running_audio = new AtomicBoolean(false);
 	private Thread serverThread_audio;
 	private Label statusLabelAudio;
+	protected static final int bufferSize = 512;
 
 	public static void main(String[] args) {
 		mySqlJava = new MySqlJava();
@@ -90,11 +91,11 @@ public class ServerChat extends Application {
 		statusLabelAudio = new Label("Statut : Serveur Audio arrêté");
 
 		// Bouton pour démarrer le serveur Audio
-		Button startBtnAudio = new Button("Démarrer le serveur Audio");
+		Button startBtnAudio = new Button("Démarrer le serveur Audio/Video");
 		startBtnAudio.setOnAction(event -> startServer());
 
 		// Bouton pour arrêter le serveur Audio
-		Button stopBtnAudio = new Button("Arrêter le serveur Audio");
+		Button stopBtnAudio = new Button("Arrêter le serveur Audio/Video");
 		stopBtnAudio.setOnAction(event -> stopServer());
 
 		// Désactivation initiale du bouton Audio "Arrêter"
@@ -105,7 +106,7 @@ public class ServerChat extends Application {
 		stopBtnAudio.setDisable(!running.get());
 
 		startBtnAudio.setOnAction(event -> {
-			startServerAudio();
+			startServerAudioVideo();
 			startBtnAudio.setDisable(true);
 			stopBtnAudio.setDisable(false);
 		});
@@ -244,92 +245,32 @@ public class ServerChat extends Application {
 		}
 	}
 
-	private void broadcastMessage(String Datas, Socket sender, PrintWriter outCurrentClient) {
-		JSONObject currentDatas = new JSONObject(Datas);
-		String action = currentDatas.has("action") ? currentDatas.getString("action") : null;
-		System.out.println("Action : " + action);
+	private void broadcastMessage(String datas, Socket sender, PrintWriter outCurrentClient) {
+		try {
+			JSONObject currentDatas = new JSONObject(datas);
+			String action = currentDatas.optString("action", null);
+			System.out.println("Action : " + action);
 
-		if ("get_messages".equals(action)) {
-			List<JSONObject> result = mySqlJava.executeSelectQuery("SELECT * FROM message");
-			outCurrentClient.println(formateResponse(true, "get_messages", null, result.toString()));
-			return;
-		}
-//		System.out.println("action::::::" + action);
-		if (Helpers.audioFile.equals(action)) {
-			String fileName = currentDatas.getString("fileName");
-			String fileContent = currentDatas.getString("fileContent");
-
-			synchronized (clientSockets) {
-				for (Socket clientSocket : clientSockets) {
-					try {
-						PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
-						JSONObject fileResponse = new JSONObject();
-						fileResponse.put("action", "send_file");
-						fileResponse.put("datas", currentDatas);
-
-						out.println(fileResponse.toString());
-					} catch (IOException e) {
-						e.printStackTrace();
-					}
-				}
+			if ("get_messages".equals(action)) {
+				handleGetMessages(outCurrentClient);
+			} else if (Helpers.sendFile.equals(action)) {
+				handleSendFile(currentDatas);
+			} else if (Helpers.audioType.equals(action)) {
+				handleAudioMessageSignal(currentDatas, sender);
+			} else if (Helpers.videoType.equals(action)) {
+				handleVideoMessageSignal(currentDatas, sender);
+			} else if (Helpers.endCallType.equals(action)) {
+				handleEndCall(currentDatas, sender);
+			} else if (Helpers.login.equals(action)) {
+				handleLogin(currentDatas, sender, outCurrentClient);
+			} else if (Helpers.logout.equals(action)) {
+				handleLogout(currentDatas, sender, outCurrentClient);
+			} else {
+				handleDefaultMessage(currentDatas, sender);
 			}
-		} else if (Helpers.audioType.equals(action)) {
-			synchronized (clientSockets) {
-				for (Socket clientSocket : clientSockets) {
-					if (clientSocket != sender) {
-						try {
-							PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
-							JSONObject callResponse = new JSONObject();
-							callResponse.put("action", Helpers.audioType);
-							callResponse.put("datas", currentDatas);
-							out.println(callResponse.toString());
-						} catch (IOException e) {
-							System.err.println("Erreur lors de l'envoi au client : " + clientSocket);
-							e.printStackTrace();
-						}
-					}
-				}
-			}
-		} else if (Helpers.videoType.equals(action)) {
-			synchronized (clientSockets) {
-				for (Socket clientSocket : clientSockets) {
-					if (clientSocket != sender) {
-						try {
-							PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
-							JSONObject callResponse = new JSONObject();
-							callResponse.put("action", Helpers.videoType);
-							callResponse.put("datas", currentDatas);
-							out.println(callResponse.toString());
-						} catch (IOException e) {
-							System.err.println("Erreur lors de l'envoi au client : " + clientSocket);
-							e.printStackTrace();
-						}
-					}
-				}
-			}
-		} else {
-			if (currentDatas != null) {
-				String insertQuery = "INSERT INTO message (idSend, idReceive, content) " + "VALUES ("
-						+ currentDatas.getInt("idSend") + "," + currentDatas.getInt("idReceive") + "," + "'"
-						+ currentDatas.getString("content") + "' )";
-				mySqlJava.executeUpdateQuery(insertQuery);
-			}
-
-			synchronized (clientSockets) {
-				for (Socket clientSocket : clientSockets) {
-					if (clientSocket != sender) {
-						try {
-							PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
-							System.out.println(
-									"Le serveur a reçu le message : " + currentDatas.toString() + " ::: De :" + sender);
-							out.println(formateResponse(true, null, currentDatas, null));
-						} catch (IOException e) {
-							System.err.println("Erreur lors de l'envoi au client : " + clientSocket);
-							e.printStackTrace();
-						}
-					}
-				}
-			}
+		} catch (Exception e) {
+			System.err.println("Erreur lors du traitement du message : " + e.getMessage());
+			e.printStackTrace();
 		}
 	}
 
@@ -369,7 +310,7 @@ public class ServerChat extends Application {
 	 * audio section
 	 */
 
-	private void startServerAudio() {
+	private void startServerAudioVideo() {
 		if (running_audio.get()) {
 			System.out.println("Le serveur Audio est déjà en cours d'exécution.");
 			return;
@@ -389,7 +330,7 @@ public class ServerChat extends Application {
 						clientSockets_audio.add(clientSocket);
 						System.out.println("Client audio connecté  : " + clientSocket);
 
-						new Thread(() -> handleClientAudio(clientSocket)).start();
+						new Thread(() -> handleClientAudioVideo(clientSocket)).start();
 					} catch (IOException e) {
 						if (running_audio.get()) {
 							e.printStackTrace();
@@ -443,18 +384,19 @@ public class ServerChat extends Application {
 		}
 	}
 
-	private void handleClientAudio(Socket sender) {
+	private void handleClientAudioVideo(Socket sender) {
 		try {
 			InputStream in = sender.getInputStream();
-			byte[] dataBuffer = new byte[4096]; // Taille réduite pour une lecture plus fréquente
-			StringBuilder buffer = new StringBuilder();
+
+			byte[] dataBuffer = new byte[bufferSize]; // Taille réduite pour une lecture plus fréquente
 
 			int bytesRead;
 			while ((bytesRead = in.read(dataBuffer)) != -1) {
+				String dataString = new String(dataBuffer, 0, bytesRead, StandardCharsets.UTF_8);
 
 				synchronized (clientSockets_audio) {
 					for (Socket clientSocket : clientSockets_audio) {
-						if (clientSocket != sender) { // Ne pas renvoyer au client expéditeur
+						if (!clientSocket.equals(sender)) { // Ne pas renvoyer au client expéditeur
 							try {
 								OutputStream out = clientSocket.getOutputStream();
 								out.write(dataBuffer, 0, bytesRead); // Envoyer les données brutes sans modification
@@ -464,9 +406,11 @@ public class ServerChat extends Application {
 								e.printStackTrace();
 							}
 						}
+						if (dataString.contains(Helpers.endCallType)) {
+//							clientSockets_audio.remove(clientSocket);
+						}
 					}
 				}
-
 			}
 		} catch (IOException e) {
 			System.out.println("Client audio déconnecté : " + sender);
@@ -478,6 +422,224 @@ public class ServerChat extends Application {
 				e.printStackTrace();
 			}
 		}
+	}
+
+	private void handleGetMessages(PrintWriter outCurrentClient) {
+		List<JSONObject> result = getMessages();
+		outCurrentClient.println(formateResponse(true, "get_messages", null, result.toString()));
+	}
+
+	private List<JSONObject> getMessages() {
+		return mySqlJava.executeSelectQuery(
+				"SELECT m.*, u.username AS usernameSend, u.firstname AS firstnameSend, u.lastname AS lastnameSend FROM message AS m  JOIN user AS u on m.idSend=idUser ");
+	}
+
+	private void handleSendFile(JSONObject currentDatas) {
+		String fileName = currentDatas.getString("fileName");
+		String fileContent = currentDatas.getString("fileContent");
+
+		synchronized (clientSockets) {
+			for (Socket clientSocket : clientSockets) {
+				try {
+					PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
+					JSONObject fileResponse = new JSONObject();
+					fileResponse.put("action", "send_file");
+					fileResponse.put("datas", currentDatas);
+
+					out.println(fileResponse.toString());
+				} catch (IOException e) {
+					System.err.println("Erreur lors de l'envoi du fichier au client.");
+					e.printStackTrace();
+				}
+			}
+		}
+	}
+
+	private void handleAudioMessageSignal(JSONObject currentDatas, Socket sender) {
+		synchronized (clientSockets) {
+			for (Socket clientSocket : clientSockets) {
+				if (!clientSocket.equals(sender)) {
+					try {
+						PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
+						JSONObject callResponse = new JSONObject();
+						callResponse.put("action", Helpers.audioType);
+						callResponse.put("datas", currentDatas);
+						out.println(callResponse.toString());
+					} catch (IOException e) {
+						System.err.println("Erreur lors de l'envoi au client pour l'audio.");
+						e.printStackTrace();
+					}
+				}
+			}
+		}
+	}
+
+	private void handleVideoMessageSignal(JSONObject currentDatas, Socket sender) {
+		synchronized (clientSockets) {
+			for (Socket clientSocket : clientSockets) {
+				if (!clientSocket.equals(sender)) {
+					try {
+						PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
+						JSONObject callResponse = new JSONObject();
+						callResponse.put("action", Helpers.videoType);
+						callResponse.put("datas", currentDatas);
+						out.println(callResponse.toString());
+					} catch (IOException e) {
+						System.err.println("Erreur lors de l'envoi au client pour la vidéo.");
+						e.printStackTrace();
+					}
+				}
+			}
+		}
+	}
+
+	private void handleEndCall(JSONObject currentDatas, Socket sender) {
+		synchronized (clientSockets) {
+			for (Socket clientSocket : clientSockets) {
+				if (!clientSocket.equals(sender)) {
+					try {
+						PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
+						JSONObject callResponse = new JSONObject();
+						callResponse.put("action", Helpers.endCallType);
+						callResponse.put("datas", currentDatas);
+						out.println(callResponse.toString());
+					} catch (IOException e) {
+						System.err.println("Erreur lors de l'envoi de fin d'appel au client.");
+						e.printStackTrace();
+					}
+				}
+			}
+		}
+		clientSockets_audio.clear();
+	}
+
+	private void handleLogin(JSONObject currentDatas, Socket sender, PrintWriter outCurrentClient) {
+
+		JSONObject loginResp = new JSONObject();
+		if (currentDatas != null) {
+			String username = currentDatas.getString("username");
+			String password = currentDatas.getString("password");
+
+			// Vérification si l'utilisateur existe et si le mot de passe est correct
+			String selectQuery = "SELECT * FROM `user` WHERE `username` = '" + username + "' AND `password` = '"
+					+ password + "'";
+
+			List<JSONObject> resultSet = mySqlJava.executeSelectQuery(selectQuery);
+
+			// Si un utilisateur est trouvé
+			if (resultSet != null && !resultSet.isEmpty()) {
+				// Mise à jour de isLogged à 1 pour cet utilisateur
+				String updateQuery = "UPDATE `user` SET `isLogged` = 1 WHERE `username` = '" + username
+						+ "' AND `password` = '" + password + "'";
+				mySqlJava.executeUpdateQuery(updateQuery);
+				List<JSONObject> all_users = mySqlJava.executeSelectQuery(
+						"SELECT idUser, firstname, lastname, username, isLogged, dateAdd, sexe from user");
+				loginResp.put("user", resultSet);
+				loginResp.put("all_users", all_users);
+				loginResp.put("messages", getMessages());
+				synchronized (clientSockets) {
+					outCurrentClient.println(formateResponse(true, Helpers.login, loginResp, null));
+				}
+			} else {
+				System.out.println("Aucun utilisateur trouvé");
+				outCurrentClient.println(formateResponse(false, Helpers.login, loginResp, null));
+			}
+		}
+
+		synchronized (clientSockets) {
+			for (Socket clientSocket : clientSockets) {
+				// Vérifiez que le client actuel n'est pas le client émetteur
+				if (!clientSocket.equals(sender)) {
+					try {
+						PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
+						// Envoyer uniquement les informations pertinentes aux autres clients
+						System.out.println("Le serveur informe un autre client : " + clientSocket + " sur : "
+								+ currentDatas.toString());
+						out.println(formateResponse(true, Helpers.otherUserLogged, loginResp, null));
+					} catch (IOException e) {
+						System.err.println("Erreur lors de l'envoi au client.");
+						e.printStackTrace();
+					}
+				}
+			}
+		}
+	}
+
+	private void handleLogout(JSONObject currentDatas, Socket sender, PrintWriter outCurrentClient) {
+		JSONObject loginResp = new JSONObject();
+		if (currentDatas != null) {
+			int idUser = currentDatas.getInt("idUser");
+
+			// Vérification si l'utilisateur existe et si le mot de passe est correct
+			String selectQuery = "SELECT * FROM `user` WHERE `idUser` = " + idUser;
+
+			List<JSONObject> resultSet = mySqlJava.executeSelectQuery(selectQuery);
+
+			// Si un utilisateur est trouvé
+			if (resultSet != null && !resultSet.isEmpty()) {
+				// Mise à jour de isLogged à 0 pour cet utilisateur
+				String updateQuery = "UPDATE `user` SET `isLogged` = 0 WHERE `idUser` = " + idUser;
+				mySqlJava.executeUpdateQuery(updateQuery);
+				List<JSONObject> all_users = mySqlJava.executeSelectQuery(
+						"SELECT idUser, firstname, lastname, username, isLogged, dateAdd, sexe from user");
+				loginResp.put("user", resultSet);
+				loginResp.put("all_users", all_users);
+
+				synchronized (clientSockets) {
+					for (Socket clientSocket : clientSockets) {
+						try {
+							PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
+							// Envoyer uniquement les informations pertinentes aux autres clients
+							System.out.println("Le serveur informe un autre client : " + clientSocket + " sur : "
+									+ currentDatas.toString());
+							out.println(formateResponse(true, Helpers.otherUserLogged, loginResp, null));
+						} catch (IOException e) {
+							System.err.println("Erreur lors de l'envoi au client.");
+							e.printStackTrace();
+						}
+					}
+					clientSockets.remove(sender);
+				}
+
+			} else {
+				System.out.println("Echec de la deconnexion");
+				outCurrentClient.println(formateResponse(false, Helpers.login, loginResp, null));
+			}
+		}
+
+	}
+
+	private void handleDefaultMessage(JSONObject currentDatas, Socket sender) {
+		if (currentDatas != null) {
+			String insertQuery = "INSERT INTO message (idSend, idReceive, content) " + "VALUES ("
+					+ currentDatas.getInt("idSend") + "," + currentDatas.getInt("idReceive") + ",'"
+					+ currentDatas.getString("content") + "')";
+			mySqlJava.executeUpdateQuery(insertQuery);
+		}
+
+		synchronized (clientSockets) {
+			for (Socket clientSocket : clientSockets) {
+				if (!clientSocket.equals(sender)) {
+					try {
+						PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
+						System.out.println("Le serveur a reçu le message : " + currentDatas.toString() + " ::: De : "
+								+ sender + "ALL SOCKET::::::::::" + clientSockets);
+						out.println(formateResponse(true, null, currentDatas, null));
+					} catch (IOException e) {
+						System.err.println("Erreur lors de l'envoi au client.");
+						e.printStackTrace();
+					}
+				}
+			}
+		}
+	}
+
+	@Override
+	public void stop() {
+		stopServer();
+		stopServerAudio();
+		Platform.exit();
+		System.exit(0);
 	}
 
 }
