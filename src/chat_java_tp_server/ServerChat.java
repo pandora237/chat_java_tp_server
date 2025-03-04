@@ -44,7 +44,7 @@ public class ServerChat extends Application {
 	private static AtomicBoolean running_audio = new AtomicBoolean(false);
 	private Thread serverThread_audio;
 	private Label statusLabelAudio;
-	protected static final int bufferSize = 512;
+	protected static final int bufferSize = 8048;
 
 	public static void main(String[] args) {
 		mySqlJava = new MySqlJava();
