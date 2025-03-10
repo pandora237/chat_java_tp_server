@@ -24,11 +24,12 @@ import javax.sound.sampled.SourceDataLine;
 import org.json.JSONObject;
 
 import com.chat_java_tp.Model.MySqlJava;
+import com.chat_java_tp_server.helpers.ConfigEnv;
 import com.chat_java_tp_server.helpers.Helpers;
 
 public class ServerChat extends Application {
 
-	private static final int PORT = 8081;
+	private static int PORT;
 	private static Set<Socket> clientSockets = Collections.synchronizedSet(new HashSet<>());
 	private static ServerSocket serverSocket = null;
 	private static AtomicBoolean running = new AtomicBoolean(false);
@@ -38,16 +39,21 @@ public class ServerChat extends Application {
 	private static final String FILE_STORAGE = "server_files";
 
 	// Variables audio
-	private static final int PORT_AUDIO = 8082;
+	private static int PORT_AUDIO;
 	private static Set<Socket> clientSockets_audio = Collections.synchronizedSet(new HashSet<>());
 	private static ServerSocket serverSocket_audio = null;
 	private static AtomicBoolean running_audio = new AtomicBoolean(false);
 	private Thread serverThread_audio;
 	private Label statusLabelAudio;
 	protected static final int bufferSize = 8048;
+	private static ConfigEnv config_env;
 
 	public static void main(String[] args) {
 		mySqlJava = new MySqlJava();
+		config_env = new ConfigEnv();
+		PORT = Integer.parseInt(config_env.get("PORT_MESSAGE"));
+		PORT_AUDIO = Integer.parseInt(config_env.get("PORT_AUDIO_VIDEO"));
+
 //		    mySqlJava.executeSelectQuery("SELECT * FROM message"); 
 		Application.launch(args);
 	}
