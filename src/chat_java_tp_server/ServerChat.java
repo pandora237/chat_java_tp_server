@@ -29,7 +29,7 @@ import com.chat_java_tp_server.helpers.Helpers;
 
 public class ServerChat extends Application {
 
-	private static int PORT;
+	private static int PORT_MESSAGE;
 	private static Set<Socket> clientSockets = Collections.synchronizedSet(new HashSet<>());
 	private static ServerSocket serverSocket = null;
 	private static AtomicBoolean running = new AtomicBoolean(false);
@@ -39,96 +39,142 @@ public class ServerChat extends Application {
 	private static final String FILE_STORAGE = "server_files";
 
 	// Variables audio
-	private static int PORT_AUDIO;
-	private static Set<Socket> clientSockets_audio = Collections.synchronizedSet(new HashSet<>());
-	private static ServerSocket serverSocket_audio = null;
-	private static AtomicBoolean running_audio = new AtomicBoolean(false);
-	private Thread serverThread_audio;
-	private Label statusLabelAudio;
+	private static AudioServer AudioServer;
+	private static Label statusLabelAudio;
+	// Video
+	private static VideoServer VideoServer;
+	private Label statusLabelVideo;
 	protected static final int bufferSize = 8048;
 	private static ConfigEnv config_env;
+
+	Button startButton;
+	Button stopButton;
+	Button startBtnAudio;
+	Button stopBtnAudio;
+	Button startBtnVideo;
+	Button stopBtnVideo;
 
 	public static void main(String[] args) {
 		mySqlJava = new MySqlJava();
 		config_env = new ConfigEnv();
-		PORT = Integer.parseInt(config_env.get("PORT_MESSAGE"));
-		PORT_AUDIO = Integer.parseInt(config_env.get("PORT_AUDIO_VIDEO"));
+		PORT_MESSAGE = Integer.parseInt(config_env.get("PORT_MESSAGE"));
 
 //		    mySqlJava.executeSelectQuery("SELECT * FROM message"); 
 		Application.launch(args);
 	}
 
+	public void updateLabel(String text, boolean is_audio, boolean is_run) {
+		Platform.runLater(() -> {
+			if (is_audio) {
+				statusLabelAudio.setText(text);
+				updateBtn(2, is_run);
+			} else {
+				statusLabelVideo.setText(text);
+				updateBtn(3, is_run);
+			}
+
+		});
+	}
+
+	private void updateBtn(int type, boolean is_running) {
+		switch (type) {
+		case 1: {
+			startButton.setDisable(is_running);
+			stopButton.setDisable(!is_running);
+		}
+			break;
+		case 2: {
+			startBtnAudio.setDisable(is_running);
+			stopBtnAudio.setDisable(!is_running);
+			if (is_running) {
+				startBtnVideo.setDisable(is_running);
+				stopBtnVideo.setDisable(is_running);
+			} else {
+				startBtnVideo.setDisable(is_running);
+				stopBtnVideo.setDisable(!is_running);
+			}
+		}
+			break;
+		case 3: {
+			startBtnVideo.setDisable(is_running);
+			stopBtnVideo.setDisable(!is_running);
+			if (is_running) {
+				startBtnAudio.setDisable(is_running);
+				stopBtnAudio.setDisable(is_running);
+			} else {
+				startBtnAudio.setDisable(is_running);
+				stopBtnAudio.setDisable(!is_running);
+			}
+		}
+			break;
+		default:
+			stopButton.setDisable(is_running);
+			stopBtnAudio.setDisable(is_running);
+			stopBtnVideo.setDisable(is_running);
+
+			startButton.setDisable(!is_running);
+			startBtnAudio.setDisable(!is_running);
+			startBtnVideo.setDisable(!is_running);
+
+		}
+	}
+
 	private Scene initView() {
-		// Label pour afficher le statut
 		statusLabel = new Label("Statut : Serveur arrêté");
-
-		// Bouton pour démarrer le serveur
-		Button startButton = new Button("Démarrer le serveur");
-		startButton.setOnAction(event -> startServer());
-
-		// Bouton pour arrêter le serveur
-		Button stopButton = new Button("Arrêter le serveur");
-		stopButton.setOnAction(event -> stopServer());
-
-		// Désactivation initiale du bouton "Arrêter"
-		stopButton.setDisable(true);
-
-		// Gestion de l'état des boutons
-		startButton.setDisable(running.get());
-		stopButton.setDisable(!running.get());
-
-		startButton.setOnAction(event -> {
-			startServer();
-			startButton.setDisable(true);
-			stopButton.setDisable(false);
-		});
-
-		stopButton.setOnAction(event -> {
-			stopServer();
-			stopButton.setDisable(true);
-			startButton.setDisable(false);
-		});
-
-		/*
-		 * Audio items
-		 */
-
-		// Label pour afficher le statut Audio
 		statusLabelAudio = new Label("Statut : Serveur Audio arrêté");
+		statusLabelVideo = new Label("Statut : Serveur Video arrêté");
 
-		// Bouton pour démarrer le serveur Audio
-		Button startBtnAudio = new Button("Démarrer le serveur Audio/Video");
-		startBtnAudio.setOnAction(event -> startServer());
+		startButton = createServerButton("Démarrer le serveur", this::startServer);
+		stopButton = createServerButton("Arrêter le serveur", this::stopServer);
+		startBtnAudio = createServerButton("Démarrer le serveur Audio", () -> startAudioServer());
+		stopBtnAudio = createServerButton("Arrêter le serveur Audio", () -> stopAudioServer());
+		startBtnVideo = createServerButton("Démarrer le serveur Video", () -> startVideoServer());
+		stopBtnVideo = createServerButton("Arrêter le serveur Video", () -> stopVideoServer());
 
-		// Bouton pour arrêter le serveur Audio
-		Button stopBtnAudio = new Button("Arrêter le serveur Audio/Video");
-		stopBtnAudio.setOnAction(event -> stopServer());
+		updateBtn(0, true);
 
-		// Désactivation initiale du bouton Audio "Arrêter"
-		stopBtnAudio.setDisable(true);
-
-		// Gestion de l'état des boutons Audio
-		startBtnAudio.setDisable(running.get());
-		stopBtnAudio.setDisable(!running.get());
-
-		startBtnAudio.setOnAction(event -> {
-			startServerAudioVideo();
-			startBtnAudio.setDisable(true);
-			stopBtnAudio.setDisable(false);
-		});
-
-		stopBtnAudio.setOnAction(event -> {
-			stopServerAudio();
-			stopBtnAudio.setDisable(true);
-			startBtnAudio.setDisable(false);
-		});
-
-		// Disposition de la fenêtre
-		VBox layout = new VBox(10, statusLabel, startButton, stopButton, statusLabelAudio, startBtnAudio, stopBtnAudio);
+		VBox layout = new VBox(10, statusLabel, startButton, stopButton, statusLabelAudio, startBtnAudio, stopBtnAudio,
+				statusLabelVideo, startBtnVideo, stopBtnVideo);
 		layout.setStyle("-fx-padding: 20; -fx-alignment: center;");
+		AudioServer = new AudioServer(config_env, this);
+		VideoServer = new VideoServer(config_env, this);
+		return new Scene(layout, 400, 300);
+	}
 
-		// Configuration de la scène
-		return new Scene(layout, 300, 200);
+	private Button createServerButton(String text, Runnable action) {
+		Button button = new Button(text);
+		button.setOnAction(event -> {
+			action.run();
+		});
+		return button;
+	}
+
+	private void startAudioServer() {
+		try {
+			AudioServer.startServer();
+			statusLabelAudio.setText("Statut : Serveur Audio démarré");
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+
+	private void stopAudioServer() {
+		AudioServer.stopServer();
+		statusLabelAudio.setText("Statut : Serveur Audio arrêté");
+	}
+
+	private void startVideoServer() {
+		try {
+			VideoServer.startServer();
+			statusLabelVideo.setText("Statut : Serveur Video démarré");
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+
+	private void stopVideoServer() {
+		VideoServer.stopServer();
+		statusLabelVideo.setText("Statut : Serveur Video arrêté");
 	}
 
 	@Override
@@ -157,9 +203,9 @@ public class ServerChat extends Application {
 		running.set(true);
 		serverThread = new Thread(() -> {
 			try {
-				serverSocket = new ServerSocket(PORT);
-				Platform.runLater(() -> statusLabel.setText("Statut : Serveur en cours sur le port " + PORT));
-				System.out.println("Serveur démarré sur le port " + PORT);
+				serverSocket = new ServerSocket(PORT_MESSAGE);
+				Platform.runLater(() -> statusLabel.setText("Statut : Serveur en cours sur le port " + PORT_MESSAGE));
+				System.out.println("Serveur démarré sur le port " + PORT_MESSAGE);
 
 				while (running.get()) {
 					try {
@@ -183,11 +229,13 @@ public class ServerChat extends Application {
 			}
 		});
 		serverThread.start();
+		updateBtn(1, true);
 	}
 
 	private void stopServer() {
 		if (!running.get()) {
 			System.out.println("Le serveur est déjà arrêté.");
+			updateBtn(1, false);
 			return;
 		}
 
@@ -312,124 +360,6 @@ public class ServerChat extends Application {
 		return resp;
 	}
 
-	/*
-	 * audio section
-	 */
-
-	private void startServerAudioVideo() {
-		if (running_audio.get()) {
-			System.out.println("Le serveur Audio est déjà en cours d'exécution.");
-			return;
-		}
-
-		running_audio.set(true);
-		serverThread_audio = new Thread(() -> {
-			try {
-				serverSocket_audio = new ServerSocket(PORT_AUDIO);
-				Platform.runLater(
-						() -> statusLabelAudio.setText("Statut : Serveur Audio en cours sur le port " + PORT_AUDIO));
-				System.out.println("Serveur démarré sur le port " + PORT_AUDIO);
-
-				while (running_audio.get()) {
-					try {
-						Socket clientSocket = serverSocket_audio.accept();
-						clientSockets_audio.add(clientSocket);
-						System.out.println("Client audio connecté  : " + clientSocket);
-
-						new Thread(() -> handleClientAudioVideo(clientSocket)).start();
-					} catch (IOException e) {
-						if (running_audio.get()) {
-							e.printStackTrace();
-						} else {
-							System.out.println("Serveur Audio arrêté.");
-						}
-					}
-				}
-			} catch (IOException e) {
-				e.printStackTrace();
-			} finally {
-				stopServerAudio();
-			}
-		});
-		serverThread_audio.start();
-	}
-
-	private void stopServerAudio() {
-		if (!running_audio.get()) {
-			System.out.println("Le serveur Audio est déjà arrêté.");
-			return;
-		}
-
-		running_audio.set(false);
-		System.out.println("Arrêt du serveur Audio...");
-		Platform.runLater(() -> statusLabelAudio.setText("Statut : Serveur Audio arrêté"));
-
-		try {
-			if (serverSocket_audio != null) {
-				serverSocket_audio.close();
-			}
-
-			synchronized (clientSockets_audio) {
-				for (Socket clientSocket : clientSockets_audio) {
-					clientSocket.close();
-				}
-				clientSockets_audio.clear();
-			}
-			System.out.println("Serveur Audio arrêté avec succès.");
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-
-		// Attendre que le thread du serveur audio se termine
-		try {
-			if (serverThread_audio != null) {
-				serverThread_audio.join();
-			}
-		} catch (InterruptedException e) {
-			e.printStackTrace();
-		}
-	}
-
-	private void handleClientAudioVideo(Socket sender) {
-		try {
-			InputStream in = sender.getInputStream();
-
-			byte[] dataBuffer = new byte[bufferSize]; // Taille réduite pour une lecture plus fréquente
-
-			int bytesRead;
-			while ((bytesRead = in.read(dataBuffer)) != -1) {
-				String dataString = new String(dataBuffer, 0, bytesRead, StandardCharsets.UTF_8);
-
-				synchronized (clientSockets_audio) {
-					for (Socket clientSocket : clientSockets_audio) {
-						if (!clientSocket.equals(sender)) { // Ne pas renvoyer au client expéditeur
-							try {
-								OutputStream out = clientSocket.getOutputStream();
-								out.write(dataBuffer, 0, bytesRead); // Envoyer les données brutes sans modification
-								out.flush(); // Assurez-vous que les données sont envoyées immédiatement
-							} catch (IOException e) {
-								System.err.println("Erreur lors de l'envoi audio au client : " + clientSocket);
-								e.printStackTrace();
-							}
-						}
-						if (dataString.contains(Helpers.endCallType)) {
-//							clientSockets_audio.remove(clientSocket);
-						}
-					}
-				}
-			}
-		} catch (IOException e) {
-			System.out.println("Client audio déconnecté : " + sender);
-		} finally {
-			clientSockets_audio.remove(sender);
-			try {
-				sender.close();
-			} catch (IOException e) {
-				e.printStackTrace();
-			}
-		}
-	}
-
 	private void handleGetMessages(PrintWriter outCurrentClient) {
 		List<JSONObject> result = getMessages();
 		outCurrentClient.println(formateResponse(true, "get_messages", null, result.toString()));
@@ -516,7 +446,7 @@ public class ServerChat extends Application {
 				}
 			}
 		}
-		clientSockets_audio.clear();
+		AudioServer.getClientSockets_audio_send().clear();
 	}
 
 	private void handleLogin(JSONObject currentDatas, Socket sender, PrintWriter outCurrentClient) {
@@ -643,7 +573,7 @@ public class ServerChat extends Application {
 	@Override
 	public void stop() {
 		stopServer();
-		stopServerAudio();
+		AudioServer.stopServer();
 		Platform.exit();
 		System.exit(0);
 	}
