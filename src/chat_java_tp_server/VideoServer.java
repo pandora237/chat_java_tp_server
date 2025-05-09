@@ -25,31 +25,29 @@ public class VideoServer extends AudioServer {
 	private static AtomicBoolean running_video = new AtomicBoolean(false);
 	private Thread serverThread_video_send;
 	private Thread serverThread_video_receive;
-	private static final int bufferSize = 16000; 
+	private static final int bufferSize = 16000;
 
-	public VideoServer(ConfigEnv config_env, ServerChat serverChat) {
-		super(config_env, serverChat);
-		PORT_VIDEO_SEND = Integer.parseInt(config_env.get("PORT_VIDEO"));
-		PORT_VIDEO_RECEIVE = PORT_VIDEO_SEND + 1; 
+	public VideoServer(ServerChat serverChat) {
+		super(serverChat);
 	}
 
 	@Override
-	void startServer() throws IOException {
-		super.startServer();
+	public int startServerSender() throws IOException {
+		int portAudio = super.startServerSender();
 		if (running_video.get()) {
 			System.out.println("Le serveur Vidéo est déjà en cours d'exécution.");
-			return;
+			return 0;
 		}
 
 		running_video.set(true);
 
 		try {
-			serverSocket_video_send = new ServerSocket(PORT_VIDEO_SEND);
-			serverSocket_video_receive = new ServerSocket(PORT_VIDEO_RECEIVE);
+			serverSocket_video_send = new ServerSocket(0);
+			PORT_VIDEO_SEND = serverSocket_video_send.getLocalPort();
 		} catch (IOException e) {
 			e.printStackTrace();
 			stopServer();
-			return;
+			return 0;
 		}
 
 		serverThread_video_send = new Thread(() -> {
@@ -71,6 +69,30 @@ public class VideoServer extends AudioServer {
 			}
 		});
 
+		serverThread_video_send.start();
+		return PORT_VIDEO_SEND;
+	}
+
+	@Override
+	public int startServerReceive() throws IOException {
+		int portAudio = super.startServerReceive();
+		if (running_video.get()) {
+			System.out.println("Le serveur Vidéo est déjà en cours d'exécution.");
+			return 0;
+		}
+
+		running_video.set(true);
+
+		try {
+			serverSocket_video_send = new ServerSocket(0);
+			PORT_VIDEO_SEND = serverSocket_video_send.getLocalPort();
+			serverSocket_video_receive = new ServerSocket(0);
+		} catch (IOException e) {
+			e.printStackTrace();
+			stopServer();
+			return 0;
+		}
+
 		serverThread_video_receive = new Thread(() -> {
 			while (running_video.get()) {
 				try {
@@ -90,12 +112,8 @@ public class VideoServer extends AudioServer {
 			}
 		});
 
-		serverThread_video_send.start();
 		serverThread_video_receive.start();
-
-		serverChat.updateLabel(
-				"Statut : Serveur Vidéo en cours sur les ports " + PORT_VIDEO_SEND + " et " + PORT_VIDEO_RECEIVE, false,
-				running_video.get());
+		return PORT_VIDEO_RECEIVE;
 	}
 
 	@Override
@@ -108,7 +126,6 @@ public class VideoServer extends AudioServer {
 
 		running_video.set(false);
 		System.out.println("Arrêt du serveur Vidéo...");
-		serverChat.updateLabel("Statut : Serveur Vidéo arrêté", false, running_video.get());
 
 		try {
 			if (serverSocket_video_send != null) {

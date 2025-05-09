@@ -21,6 +21,7 @@ public class AudioServer {
 	private static int PORT_AUDIO_RECEIVE;
 	private static Set<Socket> clientSockets_audio_send = Collections.synchronizedSet(new HashSet<>());
 	private static Set<Socket> clientSockets_audio_receive = Collections.synchronizedSet(new HashSet<>());
+
 	private static ServerSocket serverSocket_audio_send = null;
 	private static ServerSocket serverSocket_audio_receive = null;
 	public static AtomicBoolean running_audio = new AtomicBoolean(false);
@@ -29,34 +30,27 @@ public class AudioServer {
 	private static final int bufferSize = 8048;
 	ServerChat serverChat;
 
-	public AudioServer(ConfigEnv config_env, ServerChat serverChat) {
-		PORT_AUDIO_SEND = Integer.parseInt(config_env.get("PORT_AUDIO"));
-		PORT_AUDIO_RECEIVE = PORT_AUDIO_SEND + 1;
+	public AudioServer(ServerChat serverChat) {
 		this.serverChat = serverChat;
 	}
 
-	void startServer() throws IOException {
+	public int startServerSender() throws IOException {
 		if (running_audio.get()) {
 			System.out.println("Le serveur Audio est déjà en cours d'exécution.");
-			return;
+			return 0;
 		}
 
 		running_audio.set(true);
-
 		try {
-			serverSocket_audio_send = new ServerSocket(PORT_AUDIO_SEND);
-			serverSocket_audio_receive = new ServerSocket(PORT_AUDIO_RECEIVE);
+			serverSocket_audio_send = new ServerSocket(0);
+			PORT_AUDIO_SEND = serverSocket_audio_send.getLocalPort();
 		} catch (IOException e) {
 			e.printStackTrace();
 			stopServer();
-			return;
+			return 0;
 		}
 
 		serverThread_audio_send = new Thread(() -> {
-			serverChat.updateLabel(
-					"Statut : Serveur Audio en cours sur les ports " + PORT_AUDIO_SEND + " et " + PORT_AUDIO_RECEIVE,
-					true, running_audio.get());
-
 			while (running_audio.get()) {
 				try {
 					Socket clientSocket = serverSocket_audio_send.accept();
@@ -74,6 +68,30 @@ public class AudioServer {
 				}
 			}
 		});
+
+		serverThread_audio_send.start();
+		return PORT_AUDIO_SEND;
+	}
+
+	public int startServerReceive() throws IOException {
+		if (serverThread_audio_send == null || PORT_AUDIO_SEND == 0) {
+			return 0;
+		}
+		if (running_audio.get()) {
+			System.out.println("Le serveur Audio est déjà en cours d'exécution.");
+			return 0;
+		}
+
+		running_audio.set(true);
+		try {
+			serverSocket_audio_receive = new ServerSocket(0);
+			PORT_AUDIO_RECEIVE = serverSocket_audio_receive.getLocalPort();
+
+		} catch (IOException e) {
+			e.printStackTrace();
+			stopServer();
+			return 0;
+		}
 
 		serverThread_audio_receive = new Thread(() -> {
 			while (running_audio.get()) {
@@ -94,8 +112,8 @@ public class AudioServer {
 			}
 		});
 
-		serverThread_audio_send.start();
 		serverThread_audio_receive.start();
+		return PORT_AUDIO_RECEIVE;
 	}
 
 	void stopServer() {
@@ -106,7 +124,6 @@ public class AudioServer {
 
 		running_audio.set(false);
 		System.out.println("Arrêt du serveur Audio...");
-		serverChat.updateLabel("Statut : Serveur Audio arrêté", true, running_audio.get());
 
 		try {
 			if (serverSocket_audio_send != null) {
@@ -116,11 +133,11 @@ public class AudioServer {
 				serverSocket_audio_receive.close();
 			}
 
-			synchronized (getClientSockets_audio_send()) {
-				for (Socket clientSocket : getClientSockets_audio_send()) {
+			synchronized (clientSockets_audio_send) {
+				for (Socket clientSocket : clientSockets_audio_send) {
 					clientSocket.close();
 				}
-				getClientSockets_audio_send().clear();
+				clientSockets_audio_send.clear();
 			}
 
 			synchronized (clientSockets_audio_receive) {
@@ -213,6 +230,14 @@ public class AudioServer {
 
 	public static void setClientSockets_audio_send(Set<Socket> clientSockets_audio_send) {
 		AudioServer.clientSockets_audio_send = clientSockets_audio_send;
+	}
+
+	public static Set<Socket> getClientSockets_audio_receive() {
+		return clientSockets_audio_receive;
+	}
+
+	public static void setClientSockets_audio_receive(Set<Socket> clientSockets_audio_receive) {
+		AudioServer.clientSockets_audio_receive = clientSockets_audio_receive;
 	}
 
 }

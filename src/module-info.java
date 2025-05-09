@@ -12,8 +12,8 @@ module chat_java_tp_server_ {
 	requires java.base;
 	 requires javafx.fxml; 
 	requires org.json;
-	requires java.desktop;  
-
+	requires java.desktop;
+	requires mysql.connector.j;   
 
 	 exports chat_java_tp_server;
 }

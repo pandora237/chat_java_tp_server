@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            background-color: aqua;
+            font-size: 16px;
+            font-family: sans-serif;
+        }
+
+        .resume {
+            height: 100vh;
+            background-color: rgb(5, 101, 101);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .title{
+            font-weight: bold;
+            font-size: xx-large;
+            text-decoration: underline;
+            margin: auto;
+            display: flex;
+            align-items: center;
+            justify-content: center; 
+            width: 100%;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container input {
+            width: 60%;
+            padding: 10px;
+            border-radius: 20px;
+            border: none;
+        }
+
+        .container .elements {
+            border-top: 20px;
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            column-gap: 10px;
+            row-gap: 5px;
+            padding: 0 10px;
+            margin-top: 20px;
+        }
+
+        .elements span {
+            background-color: #fff;
+            padding: 8px;
+            border-radius: 5px;
+        }
+
+        .hide {
+            display: none;
+        }
+
+        .resume-2 {
+            background-color: #a25;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="title">
+        <h1 class="title">Bienvenue</h1>
+    </div>
+    <div class="resume resume-1">
+        <div class="container">
+            <input type="text" class="search-name" placeholder="Recherche">
+            <div class="elements">
+                <span>John Doe</span>
+                <span>Michell Magan</span>
+                <span>Jorisse Tene</span>
+                <span>Kevin Djapa</span>
+                <span>Franky Alongamo</span>
+                <span>Arnold Bissai</span>
+                <span>Franck Kamga</span>
+                <span>Peres Fokoua</span>
+                <span>Johan Djomo</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="resume resume-2">
+        <div class="container">
+            <input type="text" class="search-name" placeholder="Recherche">
+            <div class="elements">
+            </div>
+        </div>
+    </div>
+
+</body>
+<script defer>
+    const search = document.querySelector('input.search-name');
+    const elements = document.querySelectorAll('.elements span');
+
+    search.addEventListener('keyup', (event) => {
+        let value = event.target.value.toLowerCase();
+        elements.forEach(s => {
+            let text = s.innerText.toLowerCase();
+            if (text.includes(value)) {
+                //s.style.display='block';
+                s.classList.remove('hide');
+            } else {
+                // s.style.display='none';
+                s.classList.add('hide');
+            }
+        })
+
+    })
+</script>
+
+</html>

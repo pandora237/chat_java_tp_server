@@ -10,134 +10,86 @@ import javafx.stage.Stage;
 
 import java.io.*;
 import java.net.*;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import java.nio.file.Files;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import javax.sound.sampled.AudioFormat;
-import javax.sound.sampled.AudioSystem;
-import javax.sound.sampled.DataLine;
-import javax.sound.sampled.SourceDataLine;
-
 import org.json.JSONObject;
 
-import com.chat_java_tp.Model.MySqlJava;
+import com.chat_java_tp.Model.Message;
+import com.chat_java_tp.Model.User;
+import com.chat_java_tp.Model.UserConnected;
 import com.chat_java_tp_server.helpers.ConfigEnv;
 import com.chat_java_tp_server.helpers.Helpers;
+import com.chat_java_tp_server.helpers.Helpers.StatusMess;
+
+import DAO.Message.MessageDAOImpl;
+import DAO.User.UserDAOImpl;
+import DAO.UserConnected.UserConnectedDAOImpl;
+import DB.MySqlJavaDB;
 
 public class ServerChat extends Application {
 
 	private static int PORT_MESSAGE;
 	private static Set<Socket> clientSockets = Collections.synchronizedSet(new HashSet<>());
+	private static Map<Integer, Socket> onlineClients = Collections.synchronizedMap(new HashMap<>());
 	private static ServerSocket serverSocket = null;
 	private static AtomicBoolean running = new AtomicBoolean(false);
 	private Thread serverThread;
 	private Label statusLabel;
-	public static MySqlJava mySqlJava;
+	private static MySqlJavaDB dbManager;
+	private static MessageDAOImpl messageDAOImpl;
+	private static UserDAOImpl userDAOImpl;
+	private static UserConnectedDAOImpl userConnectedDAOImpl;
 	private static final String FILE_STORAGE = "server_files";
 
 	// Variables audio
-	private static AudioServer AudioServer;
-	private static Label statusLabelAudio;
+
+	private static Map<Integer, AudioServer> listAudioServer = Collections.synchronizedMap(new HashMap<>());
+
+	private static Map<Integer, VideoServer> listVideoServer = Collections.synchronizedMap(new HashMap<>());
+
 	// Video
-	private static VideoServer VideoServer;
-	private Label statusLabelVideo;
 	protected static final int bufferSize = 8048;
 	private static ConfigEnv config_env;
 
 	Button startButton;
 	Button stopButton;
-	Button startBtnAudio;
-	Button stopBtnAudio;
-	Button startBtnVideo;
-	Button stopBtnVideo;
 
 	public static void main(String[] args) {
-		mySqlJava = new MySqlJava();
+		dbManager = new MySqlJavaDB();
+		messageDAOImpl = new MessageDAOImpl(dbManager);
+		userDAOImpl = new UserDAOImpl(dbManager);
+		userConnectedDAOImpl = new UserConnectedDAOImpl(dbManager);
 		config_env = new ConfigEnv();
 		PORT_MESSAGE = Integer.parseInt(config_env.get("PORT_MESSAGE"));
-
-//		    mySqlJava.executeSelectQuery("SELECT * FROM message"); 
+//		    dbManager.executeSelectQuery("SELECT * FROM message"); 
 		Application.launch(args);
 	}
 
-	public void updateLabel(String text, boolean is_audio, boolean is_run) {
-		Platform.runLater(() -> {
-			if (is_audio) {
-				statusLabelAudio.setText(text);
-				updateBtn(2, is_run);
-			} else {
-				statusLabelVideo.setText(text);
-				updateBtn(3, is_run);
-			}
-
-		});
-	}
-
-	private void updateBtn(int type, boolean is_running) {
+	private void updateBtn(int type, boolean is_not_running) {
 		switch (type) {
 		case 1: {
-			startButton.setDisable(is_running);
-			stopButton.setDisable(!is_running);
+			startButton.setDisable(is_not_running);
+			stopButton.setDisable(!is_not_running);
 		}
-			break;
-		case 2: {
-			startBtnAudio.setDisable(is_running);
-			stopBtnAudio.setDisable(!is_running);
-			if (is_running) {
-				startBtnVideo.setDisable(is_running);
-				stopBtnVideo.setDisable(is_running);
-			} else {
-				startBtnVideo.setDisable(is_running);
-				stopBtnVideo.setDisable(!is_running);
-			}
-		}
-			break;
-		case 3: {
-			startBtnVideo.setDisable(is_running);
-			stopBtnVideo.setDisable(!is_running);
-			if (is_running) {
-				startBtnAudio.setDisable(is_running);
-				stopBtnAudio.setDisable(is_running);
-			} else {
-				startBtnAudio.setDisable(is_running);
-				stopBtnAudio.setDisable(!is_running);
-			}
-		}
-			break;
 		default:
-			stopButton.setDisable(is_running);
-			stopBtnAudio.setDisable(is_running);
-			stopBtnVideo.setDisable(is_running);
-
-			startButton.setDisable(!is_running);
-			startBtnAudio.setDisable(!is_running);
-			startBtnVideo.setDisable(!is_running);
+			stopButton.setDisable(is_not_running);
+			startButton.setDisable(!is_not_running);
 
 		}
 	}
 
 	private Scene initView() {
 		statusLabel = new Label("Statut : Serveur arrêté");
-		statusLabelAudio = new Label("Statut : Serveur Audio arrêté");
-		statusLabelVideo = new Label("Statut : Serveur Video arrêté");
 
 		startButton = createServerButton("Démarrer le serveur", this::startServer);
 		stopButton = createServerButton("Arrêter le serveur", this::stopServer);
-		startBtnAudio = createServerButton("Démarrer le serveur Audio", () -> startAudioServer());
-		stopBtnAudio = createServerButton("Arrêter le serveur Audio", () -> stopAudioServer());
-		startBtnVideo = createServerButton("Démarrer le serveur Video", () -> startVideoServer());
-		stopBtnVideo = createServerButton("Arrêter le serveur Video", () -> stopVideoServer());
 
-		updateBtn(0, true);
+		updateBtn(1, true);
 
-		VBox layout = new VBox(10, statusLabel, startButton, stopButton, statusLabelAudio, startBtnAudio, stopBtnAudio,
-				statusLabelVideo, startBtnVideo, stopBtnVideo);
+		VBox layout = new VBox(10, statusLabel, startButton, stopButton);
 		layout.setStyle("-fx-padding: 20; -fx-alignment: center;");
-		AudioServer = new AudioServer(config_env, this);
-		VideoServer = new VideoServer(config_env, this);
 		return new Scene(layout, 400, 300);
 	}
 
@@ -147,34 +99,6 @@ public class ServerChat extends Application {
 			action.run();
 		});
 		return button;
-	}
-
-	private void startAudioServer() {
-		try {
-			AudioServer.startServer();
-			statusLabelAudio.setText("Statut : Serveur Audio démarré");
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-	}
-
-	private void stopAudioServer() {
-		AudioServer.stopServer();
-		statusLabelAudio.setText("Statut : Serveur Audio arrêté");
-	}
-
-	private void startVideoServer() {
-		try {
-			VideoServer.startServer();
-			statusLabelVideo.setText("Statut : Serveur Video démarré");
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-	}
-
-	private void stopVideoServer() {
-		VideoServer.stopServer();
-		statusLabelVideo.setText("Statut : Serveur Video arrêté");
 	}
 
 	@Override
@@ -195,6 +119,7 @@ public class ServerChat extends Application {
 	}
 
 	private void startServer() {
+		updateBtn(1, false);
 		if (running.get()) {
 			System.out.println("Le serveur est déjà en cours d'exécution.");
 			return;
@@ -229,7 +154,7 @@ public class ServerChat extends Application {
 			}
 		});
 		serverThread.start();
-		updateBtn(1, true);
+
 	}
 
 	private void stopServer() {
@@ -267,14 +192,12 @@ public class ServerChat extends Application {
 		} catch (InterruptedException e) {
 			e.printStackTrace();
 		}
+		updateBtn(1, true);
 	}
 
 	private void handleClient(Socket clientSocket) {
 		try (BufferedReader in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
 				PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true)) {
-
-			// Envoyer les anciens messages dès la connexion
-//			sendOldMessages(out);
 
 			String message = null;
 			while ((message = in.readLine()) != null) {
@@ -303,24 +226,36 @@ public class ServerChat extends Application {
 		try {
 			JSONObject currentDatas = new JSONObject(datas);
 			String action = currentDatas.optString("action", null);
+			int idUser = currentDatas.optInt("idUser", 0);
+			int idReceive = currentDatas.optInt("idReceive", 0);
 			System.out.println("Action : " + action);
 
 			if ("get_messages".equals(action)) {
 				handleGetMessages(outCurrentClient);
 			} else if (Helpers.sendFile.equals(action)) {
-				handleSendFile(currentDatas);
+				handleSendFile(currentDatas, idUser, idReceive);
+			} else if (Helpers.askFile.equals(action)) {
+				handleAskFile(currentDatas, idUser, idReceive);
+			} else if (Helpers.emoji.equals(action)) {
+				handleEmoji(currentDatas, sender, idUser, idReceive);
 			} else if (Helpers.audioType.equals(action)) {
-				handleAudioMessageSignal(currentDatas, sender);
+				handleAudioMessageSignal(currentDatas, sender, idUser, idReceive);
+			} else if (Helpers.audioTypeReceiver.equals(action)) {
+				handleAudioMessageSignalReceive(currentDatas, sender, idUser, idReceive);
 			} else if (Helpers.videoType.equals(action)) {
-				handleVideoMessageSignal(currentDatas, sender);
+				handleVideoMessageSignal(currentDatas, sender, idUser, idReceive);
+			} else if (Helpers.videoTypeReceiver.equals(action)) {
+				handleVideoMessageSignalReceive(currentDatas, sender, idUser, idReceive);
 			} else if (Helpers.endCallType.equals(action)) {
-				handleEndCall(currentDatas, sender);
+				handleEndCall(currentDatas, sender, idUser, idReceive);
 			} else if (Helpers.login.equals(action)) {
 				handleLogin(currentDatas, sender, outCurrentClient);
 			} else if (Helpers.logout.equals(action)) {
 				handleLogout(currentDatas, sender, outCurrentClient);
+			} else if (Helpers.getMessUserSendReceive.equals(action)) {
+				handleGetMessUserSendReceive(currentDatas, idUser, idReceive, outCurrentClient);
 			} else {
-				handleDefaultMessage(currentDatas, sender);
+				handleDefaultMessage(currentDatas, sender, idUser, idReceive);
 			}
 		} catch (Exception e) {
 			System.err.println("Erreur lors du traitement du message : " + e.getMessage());
@@ -328,10 +263,21 @@ public class ServerChat extends Application {
 		}
 	}
 
+	private void handleGetMessUserSendReceive(JSONObject currentDatas, int idUser, int idReceive,
+			PrintWriter outCurrentClient) {
+		List<JSONObject> mess = messageDAOImpl.getAllMessagesByIdFormated(idUser, idReceive);
+		System.out.println(mess);
+		currentDatas.put("messages", mess);
+		synchronized (onlineClients) {
+			outCurrentClient.println(formateResponse(true, Helpers.getMessUserSendReceive, currentDatas, null));
+		}
+	}
+
 	// méthode pour envoyer les anciens messages
 	private void sendOldMessages(PrintWriter out) {
 		// Requête SQL pour récupérer les anciens messages
-		List<JSONObject> messages = mySqlJava.executeSelectQuery("SELECT * FROM message");
+//		List<JSONObject> messages = dbManager.executeSelectQuery("SELECT * FROM message");
+		List<JSONObject> messages = messageDAOImpl.getAllMessageFormated();
 		for (JSONObject message : messages) {
 			// Envoyer chaque message au client sous forme de JSON
 			out.println(formateResponse(true, "get_messages", message, null));
@@ -361,92 +307,172 @@ public class ServerChat extends Application {
 	}
 
 	private void handleGetMessages(PrintWriter outCurrentClient) {
-		List<JSONObject> result = getMessages();
+		List<JSONObject> result = messageDAOImpl.getAllMessageFormated();
 		outCurrentClient.println(formateResponse(true, "get_messages", null, result.toString()));
 	}
 
-	private List<JSONObject> getMessages() {
-		return mySqlJava.executeSelectQuery(
-				"SELECT m.*, u.username AS usernameSend, u.firstname AS firstnameSend, u.lastname AS lastnameSend FROM message AS m  JOIN user AS u on m.idSend=idUser ");
+	private void handleSendFile(JSONObject currentDatas, int idUser, int idReceive) {
+		String fileName = currentDatas.getString("fileName");
+		byte[] fileContent = Base64.getDecoder().decode(currentDatas.getString("fileContent"));
+
+		/* save */
+		File downloadedFile = new File(Helpers.FILE_DOWNLOAD + fileName);
+		downloadedFile.getParentFile().mkdirs();// Créer le dossier si nécessaire
+
+		try (FileOutputStream fos = new FileOutputStream(downloadedFile)) {
+			fos.write(fileContent);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+
+		currentDatas.put("status", StatusMess.DELIVERED);
+		if (currentDatas != null) {
+			messageDAOImpl.addMessage(new Message(currentDatas));
+		}
+		JSONObject mess = messageDAOImpl.buildJsonFromMessage(messageDAOImpl.getLastMessage());
+
+		boolean isSent = false;
+		currentDatas.remove("fileContent");
+
+		synchronized (onlineClients) {
+			JSONObject fileResponse = new JSONObject();
+			fileResponse.put("action", Helpers.sendFile);
+			fileResponse.put("datas", currentDatas);
+
+			Socket receive = onlineClients.get(idReceive);
+			Socket sender = onlineClients.get(idUser);
+			try {
+				if (receive != null) {
+					PrintWriter out = new PrintWriter(receive.getOutputStream(), true);
+					out.println(formateResponse(true, Helpers.sendFile, mess, null));
+				}
+
+				if (sender != null) {
+					PrintWriter out_sender = new PrintWriter(sender.getOutputStream(), true);
+					out_sender.println(formateResponse(true, Helpers.sendFile, mess, null));
+				}
+				isSent = true;
+			} catch (IOException e) {
+				System.err.println("Erreur lors de l'envoi du fichier au client.");
+				e.printStackTrace();
+			}
+		}
 	}
 
-	private void handleSendFile(JSONObject currentDatas) {
-		String fileName = currentDatas.getString("fileName");
-		String fileContent = currentDatas.getString("fileContent");
+	private void handleAskFile(JSONObject currentDatas, int idUser, int idReceive) {
+		int idMessage = currentDatas.getInt("idMessage");
+		JSONObject mess = messageDAOImpl.getMessageFormated(idMessage);
+		String fileName = mess.getString("fileName");
 
-		synchronized (clientSockets) {
-			for (Socket clientSocket : clientSockets) {
+		File fileToSend = new File(Helpers.FILE_DOWNLOAD + fileName);
+
+		if (!fileToSend.exists()) {
+			System.err.println("Fichier non trouvé : " + fileToSend.getAbsolutePath());
+			return;
+		}
+
+		try {
+			byte[] fileBytes = Files.readAllBytes(fileToSend.toPath());
+
+			String encodedContent = Base64.getEncoder().encodeToString(fileBytes);
+
+			mess.put("fileContent", encodedContent);
+			mess.put("status", StatusMess.SENT);
+
+			JSONObject response = new JSONObject();
+			response.put("action", Helpers.askFile);
+			response.put("datas", mess);
+
+			boolean isSent = false;
+
+			synchronized (onlineClients) {
+				Socket receive = onlineClients.get(idReceive);
 				try {
-					PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
-					JSONObject fileResponse = new JSONObject();
-					fileResponse.put("action", "send_file");
-					fileResponse.put("datas", currentDatas);
-
-					out.println(fileResponse.toString());
+					PrintWriter out = new PrintWriter(receive.getOutputStream(), true);
+					out.println(response.toString());
+					isSent = true;
 				} catch (IOException e) {
 					System.err.println("Erreur lors de l'envoi du fichier au client.");
 					e.printStackTrace();
 				}
 			}
+
+		} catch (IOException e) {
+			System.err.println("Erreur lors de l'envoi du fichier " + fileName);
+			e.printStackTrace();
+		}
+
+	}
+
+	private void handleAudioMessageSignal(JSONObject currentDatas, Socket sender, int idUser, int idReceive) {
+		broadcastSignal(currentDatas, sender, idUser, idReceive, Helpers.audioType);
+
+		currentDatas.put("status", StatusMess.DELIVERED);
+		if (currentDatas != null) {
+			messageDAOImpl.addMessage(new Message(currentDatas));
 		}
 	}
 
-	private void handleAudioMessageSignal(JSONObject currentDatas, Socket sender) {
-		synchronized (clientSockets) {
-			for (Socket clientSocket : clientSockets) {
-				if (!clientSocket.equals(sender)) {
-					try {
-						PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
-						JSONObject callResponse = new JSONObject();
-						callResponse.put("action", Helpers.audioType);
-						callResponse.put("datas", currentDatas);
-						out.println(callResponse.toString());
-					} catch (IOException e) {
-						System.err.println("Erreur lors de l'envoi au client pour l'audio.");
-						e.printStackTrace();
-					}
-				}
-			}
+	private void handleEmoji(JSONObject currentDatas, Socket sender, int idUser, int idReceive) {
+		broadcastSignal(formateResponse(true, Helpers.emoji, currentDatas, null), sender, idUser, idReceive,
+				Helpers.emoji);
+
+		currentDatas.put("status", StatusMess.DELIVERED);
+		if (currentDatas != null) {
+			messageDAOImpl.addMessage(new Message(currentDatas));
 		}
 	}
 
-	private void handleVideoMessageSignal(JSONObject currentDatas, Socket sender) {
-		synchronized (clientSockets) {
-			for (Socket clientSocket : clientSockets) {
-				if (!clientSocket.equals(sender)) {
-					try {
-						PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
-						JSONObject callResponse = new JSONObject();
-						callResponse.put("action", Helpers.videoType);
-						callResponse.put("datas", currentDatas);
-						out.println(callResponse.toString());
-					} catch (IOException e) {
-						System.err.println("Erreur lors de l'envoi au client pour la vidéo.");
-						e.printStackTrace();
-					}
-				}
-			}
+	private void handleAudioMessageSignalReceive(JSONObject currentDatas, Socket sender, int idUser, int idReceive) {
+		broadcastSignal(currentDatas, sender, idUser, idReceive, Helpers.audioTypeReceiver);
+	}
+
+	private void handleVideoMessageSignalReceive(JSONObject currentDatas, Socket sender, int idUser, int idReceive) {
+		broadcastSignal(currentDatas, sender, idUser, idReceive, Helpers.videoTypeReceiver);
+	}
+
+	private void handleVideoMessageSignal(JSONObject currentDatas, Socket sender, int idUser, int idReceive) {
+		broadcastSignal(currentDatas, sender, idUser, idReceive, Helpers.videoType);
+		currentDatas.put("status", StatusMess.DELIVERED);
+		if (currentDatas != null) {
+			messageDAOImpl.addMessage(new Message(currentDatas));
 		}
 	}
 
-	private void handleEndCall(JSONObject currentDatas, Socket sender) {
-		synchronized (clientSockets) {
-			for (Socket clientSocket : clientSockets) {
-				if (!clientSocket.equals(sender)) {
-					try {
-						PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
-						JSONObject callResponse = new JSONObject();
-						callResponse.put("action", Helpers.endCallType);
-						callResponse.put("datas", currentDatas);
-						out.println(callResponse.toString());
-					} catch (IOException e) {
-						System.err.println("Erreur lors de l'envoi de fin d'appel au client.");
-						e.printStackTrace();
-					}
+	private void handleEndCall(JSONObject currentDatas, Socket sender, int idUser, int idReceive) {
+		broadcastSignal(currentDatas, sender, idUser, idReceive, Helpers.endCallType);
+	}
+
+	private void broadcastSignal(JSONObject currentDatas, Socket sender, int idUser, int idReceive, String type) {
+		synchronized (onlineClients) {
+			Socket clientSocket = onlineClients.get(idReceive);
+
+			boolean isSent = false;
+			try {
+				if (clientSocket != null) {
+					PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
+					out.println(currentDatas);
+					isSent = true;
 				}
+			} catch (IOException e) {
+				System.err.println("Erreur lors de l'envoi au client pour l'audio.");
+				e.printStackTrace();
 			}
+
+//			// callback
+//			try {
+//				PrintWriter outSender = new PrintWriter(sender.getOutputStream(), true);
+//				if (isSent) {
+//					currentDatas.put("status", StatusMess.DELIVERED);
+//				} else {
+//					currentDatas.put("status", StatusMess.SENT);
+//				}
+//				messageDAOImpl.addMessage(new Message(currentDatas));
+//				outSender.println(currentDatas);
+//			} catch (IOException e) {
+//				e.printStackTrace();
+//			}
 		}
-		AudioServer.getClientSockets_audio_send().clear();
 	}
 
 	private void handleLogin(JSONObject currentDatas, Socket sender, PrintWriter outCurrentClient) {
@@ -457,24 +483,28 @@ public class ServerChat extends Application {
 			String password = currentDatas.getString("password");
 
 			// Vérification si l'utilisateur existe et si le mot de passe est correct
-			String selectQuery = "SELECT * FROM `user` WHERE `username` = '" + username + "' AND `password` = '"
-					+ password + "'";
-
-			List<JSONObject> resultSet = mySqlJava.executeSelectQuery(selectQuery);
+			User user = userDAOImpl.getUserByUsernamePass(username, password);
 
 			// Si un utilisateur est trouvé
-			if (resultSet != null && !resultSet.isEmpty()) {
+			if (user != null) {
 				// Mise à jour de isLogged à 1 pour cet utilisateur
-				String updateQuery = "UPDATE `user` SET `isLogged` = 1 WHERE `username` = '" + username
-						+ "' AND `password` = '" + password + "'";
-				mySqlJava.executeUpdateQuery(updateQuery);
-				List<JSONObject> all_users = mySqlJava.executeSelectQuery(
-						"SELECT idUser, firstname, lastname, username, isLogged, dateAdd, sexe from user");
-				loginResp.put("user", resultSet);
+				userConnectedDAOImpl.addUserConnected(
+						new UserConnected(0, user.getIdUser(), sender.getLocalAddress(), sender.getPort(), true, null));
+				List<JSONObject> all_users = userDAOImpl.getAllUsersFormated();
+				List<JSONObject> conected_users = userConnectedDAOImpl.getAllUserConnectedFormatted();
+				loginResp.put("user", user.toJson());
 				loginResp.put("all_users", all_users);
-				loginResp.put("messages", getMessages());
-				synchronized (clientSockets) {
+				loginResp.put("conected_users", conected_users);
+				loginResp.put("messages", messageDAOImpl.getAllMessageFormated());
+				int idUser = user.getIdUser();
+
+				synchronized (onlineClients) {
+					onlineClients.put(idUser, sender);
 					outCurrentClient.println(formateResponse(true, Helpers.login, loginResp, null));
+				}
+
+				synchronized (clientSockets) {
+					clientSockets.remove(sender);
 				}
 			} else {
 				System.out.println("Aucun utilisateur trouvé");
@@ -482,13 +512,13 @@ public class ServerChat extends Application {
 			}
 		}
 
-		synchronized (clientSockets) {
-			for (Socket clientSocket : clientSockets) {
-				// Vérifiez que le client actuel n'est pas le client émetteur
+		// informe les autres client d'une nouvelle connexion
+		synchronized (onlineClients) {
+			for (Map.Entry<Integer, Socket> entry : onlineClients.entrySet()) {
+				Socket clientSocket = entry.getValue();
 				if (!clientSocket.equals(sender)) {
 					try {
 						PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
-						// Envoyer uniquement les informations pertinentes aux autres clients
 						System.out.println("Le serveur informe un autre client : " + clientSocket + " sur : "
 								+ currentDatas.toString());
 						out.println(formateResponse(true, Helpers.otherUserLogged, loginResp, null));
@@ -499,6 +529,24 @@ public class ServerChat extends Application {
 				}
 			}
 		}
+
+//		synchronized (onlineClients) {
+//			for (Map<Integer, Socket> clientSocket : onlineClients) {
+//				// Vérifiez que le client actuel n'est pas le client émetteur
+//				if (!clientSocket.equals(sender)) {
+//					try {
+//						PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
+//						// Envoyer uniquement les informations pertinentes aux autres clients
+//						System.out.println("Le serveur informe un autre client : " + clientSocket + " sur : "
+//								+ currentDatas.toString());
+//						out.println(formateResponse(true, Helpers.otherUserLogged, loginResp, null));
+//					} catch (IOException e) {
+//						System.err.println("Erreur lors de l'envoi au client.");
+//						e.printStackTrace();
+//					}
+//				}
+//			}
+//		}
 	}
 
 	private void handleLogout(JSONObject currentDatas, Socket sender, PrintWriter outCurrentClient) {
@@ -506,26 +554,26 @@ public class ServerChat extends Application {
 		if (currentDatas != null) {
 			int idUser = currentDatas.getInt("idUser");
 
-			// Vérification si l'utilisateur existe et si le mot de passe est correct
-			String selectQuery = "SELECT * FROM `user` WHERE `idUser` = " + idUser;
-
-			List<JSONObject> resultSet = mySqlJava.executeSelectQuery(selectQuery);
+			// Vérification si l'utilisateur existe
+			User user = userDAOImpl.getUser(idUser);
 
 			// Si un utilisateur est trouvé
-			if (resultSet != null && !resultSet.isEmpty()) {
+			if (user != null) {
 				// Mise à jour de isLogged à 0 pour cet utilisateur
-				String updateQuery = "UPDATE `user` SET `isLogged` = 0 WHERE `idUser` = " + idUser;
-				mySqlJava.executeUpdateQuery(updateQuery);
-				List<JSONObject> all_users = mySqlJava.executeSelectQuery(
-						"SELECT idUser, firstname, lastname, username, isLogged, dateAdd, sexe from user");
-				loginResp.put("user", resultSet);
+				userConnectedDAOImpl.updateUserConnected((new UserConnected(user.getIdConnection(), user.getIdUser(),
+						sender.getLocalAddress(), sender.getPort(), false, null)));
+
+//				List<JSONObject> all_users = userConnectedDAOImpl.getAllUserConnectedFormatted();
+				List<JSONObject> all_users = userDAOImpl.getAllUsersFormated();
+				loginResp.put("user", user.toJson());
 				loginResp.put("all_users", all_users);
 
-				synchronized (clientSockets) {
-					for (Socket clientSocket : clientSockets) {
+				synchronized (onlineClients) {
+					for (Map.Entry<Integer, Socket> entry : onlineClients.entrySet()) {
+						Socket clientSocket = entry.getValue();
 						try {
 							PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
-							// Envoyer uniquement les informations pertinentes aux autres clients
+							// Envoyer les informations aux autres clients
 							System.out.println("Le serveur informe un autre client : " + clientSocket + " sur : "
 									+ currentDatas.toString());
 							out.println(formateResponse(true, Helpers.otherUserLogged, loginResp, null));
@@ -534,7 +582,7 @@ public class ServerChat extends Application {
 							e.printStackTrace();
 						}
 					}
-					clientSockets.remove(sender);
+					onlineClients.remove(idUser);
 				}
 
 			} else {
@@ -545,35 +593,59 @@ public class ServerChat extends Application {
 
 	}
 
-	private void handleDefaultMessage(JSONObject currentDatas, Socket sender) {
-		if (currentDatas != null) {
-			String insertQuery = "INSERT INTO message (idSend, idReceive, content) " + "VALUES ("
-					+ currentDatas.getInt("idSend") + "," + currentDatas.getInt("idReceive") + ",'"
-					+ currentDatas.getString("content") + "')";
-			mySqlJava.executeUpdateQuery(insertQuery);
-		}
-
-		synchronized (clientSockets) {
-			for (Socket clientSocket : clientSockets) {
-				if (!clientSocket.equals(sender)) {
-					try {
-						PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
-						System.out.println("Le serveur a reçu le message : " + currentDatas.toString() + " ::: De : "
-								+ sender + "ALL SOCKET::::::::::" + clientSockets);
-						out.println(formateResponse(true, null, currentDatas, null));
-					} catch (IOException e) {
-						System.err.println("Erreur lors de l'envoi au client.");
-						e.printStackTrace();
-					}
+	private void handleDefaultMessage(JSONObject currentDatas, Socket sender, int idUser, int idReceive) {
+		synchronized (onlineClients) {
+			Socket clientSocket = onlineClients.get(idReceive);
+			boolean isSent = false;
+			if (clientSocket != null && sender != null && !clientSocket.equals(sender)) {
+				try {
+					PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
+					System.out.println("Le serveur a reçu le message : " + currentDatas.toString() + " ::: De : "
+							+ sender + "ALL SOCKET::::::::::" + clientSockets);
+					out.println(formateResponse(true, null, currentDatas, null));
+					isSent = true;
+				} catch (IOException e) {
+					System.err.println("Erreur lors de l'envoi au client.");
+					e.printStackTrace();
 				}
 			}
+
+			// responses signal
+			try {
+				PrintWriter outSender = new PrintWriter(sender.getOutputStream(), true);
+
+				if (isSent) {
+					currentDatas.put("status", StatusMess.DELIVERED);
+				} else {
+					currentDatas.put("status", StatusMess.SENT);
+				}
+				if (currentDatas != null) {
+					messageDAOImpl.addMessage(new Message(currentDatas));
+				}
+				outSender.println(formateResponse(true, Helpers.responseSendMessage, currentDatas, null));
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+
+//			for (Socket clientSocket : clientSockets) {
+//				if (!clientSocket.equals(sender)) {
+//					try {
+//						PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
+//						System.out.println("Le serveur a reçu le message : " + currentDatas.toString() + " ::: De : "
+//								+ sender + "ALL SOCKET::::::::::" + clientSockets);
+//						out.println(formateResponse(true, null, currentDatas, null));
+//					} catch (IOException e) {
+//						System.err.println("Erreur lors de l'envoi au client.");
+//						e.printStackTrace();
+//					}
+//				}
+//			}
 		}
 	}
 
 	@Override
 	public void stop() {
 		stopServer();
-		AudioServer.stopServer();
 		Platform.exit();
 		System.exit(0);
 	}

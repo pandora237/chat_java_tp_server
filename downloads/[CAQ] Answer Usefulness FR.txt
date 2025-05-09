@@ -1,0 +1,6 @@
+[CAQ] Answer Usefulness FR
+
+"OfficialRating": -5 == wrong language
+"OfficialRating":  0 == Partially Useful
+"OfficialRating": -2 == not useful- user
+"OfficialRating": 2 == not useful- user
